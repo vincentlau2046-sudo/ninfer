@@ -2634,7 +2634,7 @@ bool ProgramImpl::persistent_backfill_safe(
 
 qwen3_5::PhysicalUsageSnapshot ProgramImpl::physical_usage() const noexcept {
     const detail::PhysicalResources usage = physical_occupancy();
-    return qwen3_5::PhysicalUsageSnapshot{
+    qwen3_5::PhysicalUsageSnapshot out{
         .resource_revision       = resource_revision_,
         .device_state_slots      = usage.device.state_slots,
         .host_state_slots        = usage.host.state_slots,
@@ -2642,6 +2642,15 @@ qwen3_5::PhysicalUsageSnapshot ProgramImpl::physical_usage() const noexcept {
         .device_backend_kv_pages = usage.device.backend_kv_pages,
         .host_kv_bytes           = usage.host.kv_bytes,
     };
+    // Capacity totals are read-only KV-headroom diagnostics. They are deliberately kept out of
+    // PhysicalResources (admission/pressure arithmetic) so only this diagnostic exposes them.
+    if (text_kv_pages) {
+        out.device_main_kv_total_pages = text_kv_pages->physical_pool().capacity_pages();
+    }
+    if (backend_kv_pages) {
+        out.device_backend_kv_total_pages = backend_kv_pages->physical_pool().capacity_pages();
+    }
+    return out;
 }
 
 

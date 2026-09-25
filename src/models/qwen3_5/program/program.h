@@ -33,11 +33,13 @@ struct CaptureAssessmentImpl;
 // Read-only diagnostics sampled from the real Program stores.  This is not an accounting input.
 struct PhysicalUsageSnapshot {
     runtime::ProgramResourceRevision resource_revision;
-    std::uint32_t device_state_slots      = 0;
-    std::uint32_t host_state_slots        = 0;
-    std::uint32_t device_main_kv_pages    = 0;
-    std::uint32_t device_backend_kv_pages = 0;
-    std::size_t host_kv_bytes             = 0;
+    std::uint32_t device_state_slots            = 0;
+    std::uint32_t host_state_slots              = 0;
+    std::uint32_t device_main_kv_pages          = 0;
+    std::uint32_t device_backend_kv_pages       = 0;
+    std::uint32_t device_main_kv_total_pages    = 0;
+    std::uint32_t device_backend_kv_total_pages = 0;
+    std::size_t host_kv_bytes                   = 0;
 
     [[nodiscard]] friend constexpr bool operator==(const PhysicalUsageSnapshot&,
                                                    const PhysicalUsageSnapshot&) noexcept = default;

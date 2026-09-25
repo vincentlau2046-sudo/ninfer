@@ -352,7 +352,8 @@ void HttpServer::register_routes() {
 
     server_.set_pre_routing_handler([this](const httplib::Request& req, httplib::Response& res) {
         ensure_openai_request_id(req, res);
-        if (options_.api_key.empty() || req.path == "/health" || req.method == "OPTIONS") {
+        if (options_.api_key.empty() || req.path == "/health" || req.path == "/metrics" ||
+            req.method == "OPTIONS") {
             return httplib::Server::HandlerResponse::Unhandled;
         }
         // Accept both the OpenAI-style bearer token and the Anthropic-style
@@ -431,6 +432,9 @@ void HttpServer::register_routes() {
         res.set_content(nlohmann::json{{"status", available ? "ok" : "unavailable"}}.dump(),
                         "application/json");
     });
+    server_.Get("/metrics", [this](const httplib::Request& req, httplib::Response& res) {
+        handle_metrics(req, res);
+    });
     server_.Get("/v1/models", [this](const httplib::Request& req, httplib::Response& res) {
         handle_models(req, res);
     });
@@ -495,6 +499,33 @@ void HttpServer::handle_model(const httplib::Request& req, httplib::Response& re
     }
     res.set_content(make_model_object(public_model_id_, unix_time_now(), options_.max_context),
                     "application/json");
+}
+
+void HttpServer::handle_metrics(const httplib::Request&, httplib::Response& res) const {
+    const ninfer::RuntimeStats stats =
+        service_ != nullptr ? service_->runtime_stats() : ninfer::RuntimeStats{};
+    // Physical KV pages in use vs. total capacity (main text pool + optional vision backend pool).
+    const std::uint64_t kv_used =
+        static_cast<std::uint64_t>(stats.device_main_kv_occupied_pages) +
+        static_cast<std::uint64_t>(stats.device_backend_kv_occupied_pages);
+    const std::uint64_t kv_total =
+        static_cast<std::uint64_t>(stats.device_main_kv_total_pages) +
+        static_cast<std::uint64_t>(stats.device_backend_kv_total_pages);
+    const double kv_perc =
+        kv_total > 0 ? static_cast<double>(kv_used) / static_cast<double>(kv_total) : 0.0;
+
+    std::string body;
+    body += "# HELP ninfer_kv_cache_usage_perc Fraction of device KV pages in use (0.0-1.0).\n";
+    body += "# TYPE ninfer_kv_cache_usage_perc gauge\n";
+    body += "ninfer_kv_cache_usage_perc " + std::to_string(kv_perc) + "\n";
+    body += "# HELP ninfer_num_requests_running Requests currently running on the device.\n";
+    body += "# TYPE ninfer_num_requests_running gauge\n";
+    body += "ninfer_num_requests_running " + std::to_string(stats.running_requests) + "\n";
+    body += "# HELP ninfer_generation_tokens_total Monotonic count of generated decode tokens.\n";
+    body += "# TYPE ninfer_generation_tokens_total counter\n";
+    body += "ninfer_generation_tokens_total " + std::to_string(stats.committed_decode_tokens) +
+            "\n";
+    res.set_content(body, "text/plain; version=0.0.4; charset=utf-8");
 }
 
 bool HttpServer::bind() { return server_.bind_to_port(options_.host, options_.port); }
