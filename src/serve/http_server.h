@@ -3,6 +3,7 @@
 #include "serve/generation_service.h"
 #include "serve/operational_log.h"
 #include "serve/openai_responses_store.h"
+#include "serve/prometheus_histogram.h"
 #include "serve/request_log.h"
 #include "serve/serve_options.h"
 
@@ -93,10 +94,18 @@ private:
     void record_request_rejected(const RequestRejectionLogContext& context);
     void record_request_done(const RequestLogContext& context, const GenerationOutcome& outcome);
     void record_request_failure(const RequestLogContext& context, const RequestFailure& failure);
+    void observe_completion_metrics(const GenerationOutcome& outcome);
     void record_response_failure(std::uint64_t request_id, const RequestFailure& failure);
     void record_throughput(const ThroughputReport& report);
     void run_stats_reporter();
     void stop_stats_reporter();
+
+    // Per-request latency/sequence histograms exposed on GET /metrics, feeding
+    // the same VllmMetricsCollector path as vLLM/SGLang (prefix "ninfer_").
+    PrometheusHistogram ttft_seconds_{{0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10, 25, 50, 100}};
+    PrometheusHistogram tpot_seconds_{{0.001, 0.0025, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1, 2.5, 5, 10}};
+    PrometheusHistogram prompt_tokens_{{1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768}};
+    PrometheusHistogram generation_tokens_{{1, 2, 4, 8, 16, 32, 64, 128, 256, 512, 1024, 2048, 4096, 8192, 16384, 32768}};
 
     GenerationService* service_ = nullptr;
     ServeOptions options_;

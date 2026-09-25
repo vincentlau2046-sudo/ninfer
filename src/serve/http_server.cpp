@@ -269,6 +269,24 @@ void HttpServer::record_request_done(const RequestLogContext& context,
                                      const GenerationOutcome& outcome) {
     request_jsonl_.write_request_done(context, outcome);
     operational_log_.request_done(context, outcome);
+    observe_completion_metrics(outcome);
+}
+
+void HttpServer::observe_completion_metrics(const GenerationOutcome& outcome) {
+    if (outcome.metrics.ttft_seconds > 0.0) {
+        ttft_seconds_.observe(outcome.metrics.ttft_seconds);
+    }
+    // Align the per-request output-token rate with operational_log.cpp: the decode side excludes
+    // the initial prompt token, so request time-per-output-token is decode_seconds / (completion-1).
+    const std::uint64_t decode_tokens =
+        outcome.completion_tokens > 0
+            ? static_cast<std::uint64_t>(outcome.completion_tokens - 1)
+            : 0;
+    if (decode_tokens > 0 && outcome.metrics.decode_seconds > 0.0) {
+        tpot_seconds_.observe(outcome.metrics.decode_seconds / static_cast<double>(decode_tokens));
+    }
+    prompt_tokens_.observe(static_cast<double>(outcome.prompt_tokens));
+    generation_tokens_.observe(static_cast<double>(outcome.completion_tokens));
 }
 
 void HttpServer::record_request_failure(const RequestLogContext& context,
@@ -525,6 +543,14 @@ void HttpServer::handle_metrics(const httplib::Request&, httplib::Response& res)
     body += "# TYPE ninfer_generation_tokens_total counter\n";
     body += "ninfer_generation_tokens_total " + std::to_string(stats.committed_decode_tokens) +
             "\n";
+    ttft_seconds_.write_metric(body, "ninfer_time_to_first_token_seconds",
+                               "Seconds between prompt submission and first generated token.");
+    tpot_seconds_.write_metric(body, "ninfer_request_time_per_output_token_seconds",
+                               "Seconds per generated output token per request.");
+    prompt_tokens_.write_metric(body, "ninfer_request_prompt_tokens",
+                                "Prompt token count per request.");
+    generation_tokens_.write_metric(body, "ninfer_request_generation_tokens",
+                                    "Generated token count per request.");
     res.set_content(body, "text/plain; version=0.0.4; charset=utf-8");
 }
 
